@@ -96,6 +96,14 @@
       const selectedYearLabel = d3.select("#selectedYear");
       const tooltip = d3.select("#tooltip");
 
+      function normalizeCountryName(name) {
+        const mapping = {
+          "USA": "United States"
+          
+        };
+        return mapping[name] || name;
+      }
+
       function drawGroupedBar(selectedType) {
         const filtered = data.filter(d => d.rating && d.type && (selectedType === "All" || d.type === selectedType));
         const ratingCounts = d3.rollups(filtered, v => v.length, d => d.rating).map(([rating, count]) => ({ rating, count }));
@@ -144,10 +152,14 @@
           .data(world.features)
           .join("path")
           .attr("d", path)
-          .attr("fill", d => color(countryCounts[d.properties.name] || 0))
+          .attr("fill", d => {
+            const normalized = normalizeCountryName(d.properties.name);
+            return color(countryCounts[normalized] || 0);
+          })
           .attr("stroke", "#888")
           .on("mouseover", function (event, d) {
-            const count = countryCounts[d.properties.name] || 0;
+            const normalized = normalizeCountryName(d.properties.name);
+            const count = countryCounts[normalized] || 0;
             tooltip.style("display", "block").html(`<strong>${d.properties.name}</strong><br/>콘텐츠 수: ${count}`);
           })
           .on("mousemove", event => {
