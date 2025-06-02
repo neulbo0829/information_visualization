@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Netflix Dashboard</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://d3js.org/topojson.v3.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 0;
+      padding: 20px;
+      background-color: #141414;
+      color: #ffffff;
+    }
+    .vis-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    .chart {
+      background-color: #1e1e1e;
+      padding: 10px;
+      border-radius: 8px;
+    }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    select, input[type="range"] {
+      background-color: #333;
+      color: #fff;
+      border: none;
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+    .tooltip {
+      position: absolute;
+      background-color: rgba(0,0,0,0.85);
+      color: #fff;
+      padding: 6px 8px;
+      font-size: 13px;
+      pointer-events: none;
+      border-radius: 4px;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div style="display:flex; align-items:center; gap:10px; margin-bottom: 20px;">
+    <img src="netflix_logo.png" alt="Netflix Logo" style="height: 40px;">
+    <h2 style="color: #e50914; margin: 0;">Netflix Visualization Dashboard</h2>
+  </div>
+
+  <div class="vis-row">
+    <div style="flex:1 1 30%;">
+      <div class="chart-header">
+        <label>국가별 콘텐츠 수</label>
+      </div>
+      <div class="chart" id="map" style="height: 400px;"></div>
+    </div>
+
+    <div style="flex:1 1 30%;">
+      <div class="chart-header">
+        <label>연도 선택:</label>
+        <input type="range" id="yearSlider" min="2000" max="2021" value="2021">
+        <span id="selectedYear">2021</span>
+      </div>
+      <div class="chart" id="stackedBar" style="height: 400px;"></div>
+    </div>
+
+    <div style="flex:1 1 30%;">
+      <div class="chart-header">
+        <label>유형 선택:</label>
+        <select id="typeSelect">
+          <option value="All">All</option>
+          <option value="Movie">Movie</option>
+          <option value="TV Show">TV Show</option>
+        </select>
+      </div>
+      <div class="chart" id="groupedBar" style="height: 400px;"></div>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+    Promise.all([
+      d3.csv("netflix_titles.csv"),
+      d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson")
+    ]).then(([data, world]) => {
+      const typeSelect = d3.select("#typeSelect");
+      const yearSlider = d3.select("#yearSlider");
+      const selectedYearLabel = d3.select("#selectedYear");
+      const tooltip = d3.select("#tooltip");
+
+      function drawGroupedBar(selectedType) {
+        const filtered = data.filter(d => d.rating && d.type && (selectedType === "All" || d.type === selectedType));
+        const ratingCounts = d3.rollups(filtered, v => v.length, d => d.rating).map(([rating, count]) => ({ rating, count }));
+
+        const svgId = "groupedBar";
+        d3.select(`#${svgId} svg`).remove();
+        const margin = { top: 30, right: 20, bottom: 50, left: 60 }, width = 400, height = 400;
+        const svg = d3.select(`#${svgId}`).append("svg").attr("width", width).attr("height", height);
+        const x = d3.scaleBand().domain(ratingCounts.map(d => d.rating)).range([margin.left, width - margin.right]).padding(0.2);
+        const y = d3.scaleLinear().domain([0, d3.max(ratingCounts, d => d.count)]).nice().range([height - margin.bottom, margin.top]);
+        svg.selectAll("rect").data(ratingCounts).join("rect")
+          .attr("x", d => x(d.rating)).attr("y", d => y(d.count)).attr("width", x.bandwidth()).attr("height", d => y(0) - y(d.count)).attr("fill", "#e50914")
+          .append("title").text(d => `${d.rating}: ${d.count}`);
+        svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x)).selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
+        svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y));
+      }
+
+      function drawStackedBar(year) {
+        const filtered = data.filter(d => d.release_year === year.toString() && d.listed_in);
+        const genreCounts = d3.rollups(filtered, v => v.length, d => d.listed_in.split(",")[0].trim()).map(([genre, count]) => ({ genre, count }));
+        const topGenres = genreCounts.sort((a, b) => b.count - a.count).slice(0, 10);
+        const svgId = "stackedBar";
+        d3.select(`#${svgId} svg`).remove();
+        const margin = { top: 30, right: 20, bottom: 40, left: 60 }, width = 400, height = 400;
+        const svg = d3.select(`#${svgId}`).append("svg").attr("width", width).attr("height", height);
+        const x = d3.scaleBand().domain(topGenres.map(d => d.genre)).range([margin.left, width - margin.right]).padding(0.2);
+        const y = d3.scaleLinear().domain([0, d3.max(topGenres, d => d.count)]).nice().range([height - margin.bottom, margin.top]);
+        svg.selectAll("rect").data(topGenres).join("rect")
+          .attr("x", d => x(d.genre)).attr("y", d => y(d.count)).attr("width", x.bandwidth()).attr("height", d => y(0) - y(d.count)).attr("fill", "#b20710")
+          .append("title").text(d => `${d.genre}: ${d.count}`);
+        svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x)).selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
+        svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y));
+      }
+
+      function drawMap(world, data) {
+        const countryCounts = d3.rollups(data.filter(d => d.country), v => v.length, d => d.country).reduce((acc, [k, v]) => (acc[k] = v, acc), {});
+        const svgId = "map";
+        d3.select(`#${svgId} svg`).remove();
+        const width = 400, height = 400;
+        const svg = d3.select(`#${svgId}`).append("svg").attr("width", width).attr("height", height);
+        const projection = d3.geoMercator().scale(80).translate([width / 2, height / 1.5]);
+        const path = d3.geoPath().projection(projection);
+        const color = d3.scaleLinear().domain([0, 300, 1000]).range(["#330000", "#b20710", "#ff5050"]);
+
+        svg.selectAll("path")
+          .data(world.features)
+          .join("path")
+          .attr("d", path)
+          .attr("fill", d => color(countryCounts[d.properties.name] || 0))
+          .attr("stroke", "#888")
+          .on("mouseover", function (event, d) {
+            const count = countryCounts[d.properties.name] || 0;
+            tooltip.style("display", "block").html(`<strong>${d.properties.name}</strong><br/>콘텐츠 수: ${count}`);
+          })
+          .on("mousemove", event => {
+            tooltip.style("left", `${event.pageX + 10}px`).style("top", `${event.pageY - 28}px`);
+          })
+          .on("mouseout", () => tooltip.style("display", "none"));
+      }
+
+      drawGroupedBar("All");
+      drawStackedBar(+yearSlider.property("value"));
+      drawMap(world, data);
+
+      typeSelect.on("change", () => drawGroupedBar(typeSelect.property("value")));
+      yearSlider.on("input", function () {
+        const year = +this.value;
+        selectedYearLabel.text(year);
+        drawStackedBar(year);
+      });
+    });
+  </script>
+</body>
+</html>
