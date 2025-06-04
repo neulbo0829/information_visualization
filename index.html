@@ -99,26 +99,73 @@
       function normalizeCountryName(name) {
         const mapping = {
           "USA": "United States"
-          
         };
         return mapping[name] || name;
       }
 
       function drawGroupedBar(selectedType) {
-        const filtered = data.filter(d => d.rating && d.type && (selectedType === "All" || d.type === selectedType));
-        const ratingCounts = d3.rollups(filtered, v => v.length, d => d.rating).map(([rating, count]) => ({ rating, count }));
-
         const svgId = "groupedBar";
         d3.select(`#${svgId} svg`).remove();
         const margin = { top: 30, right: 20, bottom: 50, left: 60 }, width = 400, height = 400;
         const svg = d3.select(`#${svgId}`).append("svg").attr("width", width).attr("height", height);
-        const x = d3.scaleBand().domain(ratingCounts.map(d => d.rating)).range([margin.left, width - margin.right]).padding(0.2);
-        const y = d3.scaleLinear().domain([0, d3.max(ratingCounts, d => d.count)]).nice().range([height - margin.bottom, margin.top]);
-        svg.selectAll("rect").data(ratingCounts).join("rect")
-          .attr("x", d => x(d.rating)).attr("y", d => y(d.count)).attr("width", x.bandwidth()).attr("height", d => y(0) - y(d.count)).attr("fill", "#e50914")
-          .append("title").text(d => `${d.rating}: ${d.count}`);
-        svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x)).selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
-        svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y));
+
+        if (selectedType === "All") {
+          const filtered = data.filter(d => d.rating && d.type);
+          const nested = d3.rollups(filtered, v => v.length, d => d.rating, d => d.type);
+          const ratings = Array.from(new Set(filtered.map(d => d.rating))).sort();
+          const types = ["Movie", "TV Show"];
+          const series = types.map(type => ({
+            name: type,
+            values: ratings.map(rating => {
+              const found = nested.find(([r]) => r === rating);
+              const count = found ? (found[1].find(([t]) => t === type)?.[1] || 0) : 0;
+              return { rating, count };
+            })
+          }));
+
+          const x0 = d3.scaleBand().domain(ratings).range([margin.left, width - margin.right]).padding(0.2);
+          const x1 = d3.scaleBand().domain(types).range([0, x0.bandwidth()]).padding(0.05);
+          const y = d3.scaleLinear().domain([0, d3.max(series.flatMap(s => s.values.map(v => v.count)))]).nice().range([height - margin.bottom, margin.top]);
+          const color = d3.scaleOrdinal().domain(types).range(["#e50914", "#b20710"]);
+
+          svg.append("g")
+            .selectAll("g")
+            .data(ratings)
+            .join("g")
+            .attr("transform", d => `translate(${x0(d)},0)`)
+            .selectAll("rect")
+            .data(rating => series.map(s => ({ key: s.name, rating, count: s.values.find(v => v.rating === rating).count })))
+            .join("rect")
+            .attr("x", d => x1(d.key))
+            .attr("y", d => y(d.count))
+            .attr("width", x1.bandwidth())
+            .attr("height", d => y(0) - y(d.count))
+            .attr("fill", d => color(d.key))
+            .append("title").text(d => `${d.key} - ${d.rating}: ${d.count}`);
+
+          svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x0)).selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
+          svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y));
+
+          const legend = svg.append("g").attr("transform", `translate(${width - 100},${margin.top})`);
+          types.forEach((type, i) => {
+            const g = legend.append("g").attr("transform", `translate(0,${i * 20})`);
+            g.append("rect").attr("width", 12).attr("height", 12).attr("fill", color(type));
+            g.append("text").text(type).attr("x", 18).attr("y", 10).style("font-size", "12px").attr("fill", "#fff");
+          });
+        } else {
+          const filtered = data.filter(d => d.rating && d.type === selectedType);
+          const ratingCounts = d3.rollups(filtered, v => v.length, d => d.rating).map(([rating, count]) => ({ rating, count }));
+
+          const x = d3.scaleBand().domain(ratingCounts.map(d => d.rating)).range([margin.left, width - margin.right]).padding(0.2);
+          const y = d3.scaleLinear().domain([0, d3.max(ratingCounts, d => d.count)]).nice().range([height - margin.bottom, margin.top]);
+
+          svg.selectAll("rect").data(ratingCounts).join("rect")
+            .attr("x", d => x(d.rating)).attr("y", d => y(d.count)).attr("width", x.bandwidth()).attr("height", d => y(0) - y(d.count)).attr("fill", "#e50914")
+            .append("title").text(d => `${d.rating}: ${d.count}`);
+
+          svg.append("g").attr("transform", `translate(0,${height - margin.bottom})`).call(d3.axisBottom(x)).selectAll("text").attr("transform", "rotate(-40)").style("text-anchor", "end");
+          svg.append("g").attr("transform", `translate(${margin.left},0)`).call(d3.axisLeft(y));
+        }
       }
 
       function drawStackedBar(year) {
